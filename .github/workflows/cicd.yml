@@ -1,0 +1,32 @@
+name: CI Build and Testing
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-tidy libgtest-dev
+
+      - name: Configure CMake
+        # Generate compile_commands.json so clang-tidy/cppcheck can see headers
+        run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=ON
+
+
+      - name: Run Clang-Tidy
+        run: clang-tidy -p build/ src/*.cpp --warnings-as-errors='*'
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run Tests
+        run: ./bin/unit_tests
