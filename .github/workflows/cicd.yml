@@ -18,12 +18,14 @@ jobs:
           sudo apt-get install -y ninja-build clang-tidy libgtest-dev
 
       - name: Configure CMake
-        # Generate compile_commands.json so clang-tidy/cppcheck can see headers
         run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=ON
-
 
       - name: Run Clang-Tidy
         run: clang-tidy -p build/ src/*.cpp --warnings-as-errors='*'
+      
+      - name: Check Formatting
+        run: |
+          find src include tests -name '*.[ch]' -o -name '*.cpp' | xargs clang-format --dry-run --Werror -style=file
 
       - name: Build
         run: cmake --build build

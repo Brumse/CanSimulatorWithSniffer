@@ -2,4 +2,4 @@
 
 #include "greeting.h"
 
-std::string greeting() { return "Hello World"; }
+auto greeting() -> std::string { return "Hello World!"; }

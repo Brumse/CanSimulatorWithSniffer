@@ -7,4 +7,4 @@ protected:
   void TearDown() override {}
 };
 
-TEST_F(GreeetingTest, greetingTest) { EXPECT_EQ(greeting(), "Hello World"); }
+TEST_F(GreeetingTest, greetingTest) { EXPECT_EQ(greeting(), "Hello World!"); }
