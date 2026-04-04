@@ -1,0 +1,8 @@
+---
+BasedOnStyle: GNU
+AlwaysBreakAfterDefinitionReturnType: None
+BreakAfterReturnType: None
+IndentWidth: 4
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+

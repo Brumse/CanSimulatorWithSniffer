@@ -1,11 +1,10 @@
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
-file(GLOB TEST_SOURCES "*.cpp")
+file(GLOB TEST_SOURCES "*.cpp" "*.c")
 add_executable(unit_tests ${TEST_SOURCES})
 target_link_libraries(unit_tests
-    PRIVATE
-    cansim_lib         
+    PRIVATE         
     GTest::gtest
     GTest::gtest_main 
 )

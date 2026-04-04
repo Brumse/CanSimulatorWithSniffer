@@ -21,11 +21,11 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=ON
 
       - name: Run Clang-Tidy
-        run: clang-tidy -p build/ src/*.cpp --warnings-as-errors='*'
+        run: clang-tidy -p build/ src/*.c --warnings-as-errors='*'
       
       - name: Check Formatting
         run: |
-          find src include tests -name '*.[ch]' -o -name '*.cpp' | xargs clang-format --dry-run --Werror -style=file
+          find src include tests -name '*.[ch]' -o -name '*.c' | xargs clang-format-20 --dry-run --Werror -style=file
 
       - name: Build
         run: cmake --build build
