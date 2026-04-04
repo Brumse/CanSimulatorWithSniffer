@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <curl/curl.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -13,6 +14,8 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <stdint.h>
+
+#define INFLUX_URL "http://localhost:8086/write?db=CAN_Data"
 
 static volatile sig_atomic_t keep_running = 1;
 
@@ -88,9 +91,79 @@ void print_can_frame (const struct can_frame *frame)
 
     printf ("\n");
 }
+void init_influx_db() {
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
+
+    // InfluxDB 1.8 uses the /query endpoint to create databases
+    // URL-encoded: CREATE DATABASE CAN_Data
+    const char* init_url = "http://localhost:8086/query?q=CREATE+DATABASE+CAN_Data";
+
+    curl_easy_setopt(curl, CURLOPT_URL, init_url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    // We don't need a body for this specific GET/POST query
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, ""); 
+
+    CURLcode res = curl_easy_perform(curl);
+    
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Failed to connect to InfluxDB: %s\n", curl_easy_strerror(res));
+        sleep(5);
+        res = curl_easy_perform(curl);
+        return;
+    } else {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code == 200) {
+            printf("Database 'CAN_Data' initialized or already exists.\n");
+        }
+    }
+
+    curl_easy_cleanup(curl);
+}
+
+void log_to_influx (const struct can_frame *frame)
+{
+    CURL *curl = curl_easy_init ();
+    if (!curl)
+    {
+        fprintf (stderr, "Failed to initialize CURL\n");
+        return;
+    }
+
+    char data[256];
+    snprintf (data, sizeof (data), "can_stats,id=%X,loc=%s status=%d", frame->can_id, location_to_str (frame->data[1]),
+              frame->data[0]);
+
+    curl_easy_setopt (curl, CURLOPT_URL, INFLUX_URL);
+    curl_easy_setopt (curl, CURLOPT_POSTFIELDS, data);
+
+    CURLcode res = curl_easy_perform (curl);
+    if (res != CURLE_OK)
+    {
+        fprintf (stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror (res));
+    }
+    else
+    {
+        long http_code = 0;
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (http_code == 204)
+        {
+            printf ("[DB] Data sent successfully to InfluxDB\n");
+        }
+        else
+        {
+            fprintf (stderr, "InfluxDB returned HTTP %ld\n", http_code);
+        }
+    }
+    curl_easy_cleanup (curl);
+}
 
 int main (int argc, char **argv)
 {
+    curl_global_init (CURL_GLOBAL_ALL);
+    init_influx_db();
     signal (SIGINT, handle_exit);
     if (argc < 2)
     {
@@ -141,7 +214,10 @@ int main (int argc, char **argv)
         }
 
         print_can_frame (&frame);
+        log_to_influx (&frame);
     }
+
+    curl_global_cleanup ();
     close (can_socket);
     return EXIT_SUCCESS;
 }

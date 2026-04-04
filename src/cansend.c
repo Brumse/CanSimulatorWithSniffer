@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,53 +12,60 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 
+enum
+{
+    TEST_CAN_ID = 0x123,
+    TEST_STATUS = 0x01,
+    TEST_LOCATION = 0x10
+};
+
 int main (int argc, char **argv)
 {
     if (argc < 2)
     {
-        fprintf (stderr, "Use: %s can0\n", argv[0]);
+        fprintf (stderr, "Use: %s can0\n", argv[0]); // NOLINT
         return EXIT_FAILURE;
     }
 
-    int s = socket (PF_CAN, SOCK_RAW, CAN_RAW);
-    if (s < 0)
+    int can_socket = socket (PF_CAN, SOCK_RAW, CAN_RAW);
+    if (can_socket < 0)
     {
-        fprintf (stderr, "Socket creation failed\n");
+        perror ("Socket creation failed\n");
         return EXIT_FAILURE;
     }
 
-    struct ifreq ifr;
-    memset (&ifr, 0, sizeof (ifr));
-    strcpy (ifr.ifr_name, argv[1]);
-    if (ioctl (s, SIOCGIFINDEX, &ifr) < 0)
+    struct ifreq ifr = { 0 };
+    strncpy (ifr.ifr_name, argv[1], IF_NAMESIZE - 1); // NOLINT
+    ifr.ifr_name[IF_NAMESIZE - 1] = '\0';
+    if (ioctl (can_socket, SIOCGIFINDEX, &ifr) < 0)
     {
-        fprintf (stderr, "Interface not found\n");
-        close (s);
+        perror ("Interface not found\n");
+        close (can_socket);
         return EXIT_FAILURE;
     }
 
-    struct sockaddr_can addr;
-    memset (&addr, 0, sizeof (addr));
+    struct sockaddr_can addr = { 0 };
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
-    if (bind (s, (struct sockaddr *)&addr, sizeof (addr)) < 0)
+    if (bind (can_socket, (struct sockaddr *)&addr, sizeof (addr)) < 0)
     {
-        fprintf (stderr, "Bind failed\n");
-        close (s);
+        perror ("Bind failed\n");
+        close (can_socket);
         return EXIT_FAILURE;
     }
 
     struct can_frame frame;
-    frame.can_id = 0x123;
-    frame.len = 5;
-    memcpy (frame.data, "hello", 5);
+    frame.can_id = TEST_CAN_ID;
+    frame.len = 2;
+    frame.data[0] = TEST_STATUS;   // STATUS_ERROR
+    frame.data[1] = TEST_LOCATION; // LOC_FRONT
 
-    if (write (s, &frame, sizeof (struct can_frame)) != (int)sizeof (struct can_frame))
+    if (write (can_socket, &frame, sizeof (struct can_frame)) != (int)sizeof (struct can_frame))
     {
-        fprintf (stderr, "Write failed\n");
-        close (s);
+        perror ("Write failed\n");
+        close (can_socket);
         return EXIT_FAILURE;
     }
-    close (s);
+    close (can_socket);
     return EXIT_SUCCESS;
 }
