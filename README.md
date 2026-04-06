@@ -28,7 +28,17 @@ sudo ip link set can0 up type can bitrate 125000
 
 Terminal 1:
 ```bash
-  ./bin/dump vcan0
+  ./bin/dump can0
+``` 
+Terminal 2:
+```bash
+./bin/send can0
+``` 
+
+## test canClient
+Terminal 1:
+```bash
+  ./bin/canClient vcan0
 ``` 
 Terminal 2:
 ```bash

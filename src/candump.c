@@ -14,55 +14,9 @@
 #include <linux/can/raw.h>
 #include <stdint.h>
 
+#include "canTypes.h"
+
 static volatile sig_atomic_t keep_running = 1;
-
-typedef enum
-{
-    STATUS_OK = 0x00,
-    STATUS_ERROR = 0x01,
-    STATUS_WARNING = 0x02,
-    STATUS_UNKNOWN = 0xFF
-} SystemStatus;
-
-typedef enum
-{
-    LOC_FRONT = 0x10,
-    LOC_REAR = 0x20,
-    LOC_LEFT = 0x30,
-    LOC_RIGHT = 0x40,
-    LOC_UNKNOWN = 0x00
-} ComponentLocation;
-
-const char *status_to_str (uint8_t status)
-{
-    switch (status)
-    {
-    case STATUS_OK:
-        return "OK";
-    case STATUS_ERROR:
-        return "ERROR";
-    case STATUS_WARNING:
-        return "WARNING";
-    default:
-        return "UNKNOWN_STATUS";
-    }
-}
-const char *location_to_str (uint8_t loc)
-{
-    switch (loc)
-    {
-    case LOC_FRONT:
-        return "FRONT";
-    case LOC_REAR:
-        return "REAR";
-    case LOC_LEFT:
-        return "LEFT";
-    case LOC_RIGHT:
-        return "RIGHT";
-    default:
-        return "UNKNOWN_LOC";
-    }
-}
 
 void handle_exit (int sig)
 {
@@ -117,7 +71,7 @@ int main (int argc, char **argv)
 
     struct sockaddr_can addr = { 0 };
     addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
+    addr.can_ifindex = ifr.ifr_ifindex; // NOLINT
     if (bind (can_socket, (struct sockaddr *)&addr, sizeof (addr)) < 0)
     {
         perror ("Bind failed\n");

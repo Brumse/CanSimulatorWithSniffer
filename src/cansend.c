@@ -12,11 +12,22 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 
+#include "canTypes.h"
+
 enum
 {
-    TEST_CAN_ID = 0x123,
-    TEST_STATUS = 0x01,
-    TEST_LOCATION = 0x10
+    SLEEP = 100000,
+    FRAME_ID = 0x100,
+    NUM_FRAME = 5,
+    LOC_INDEX_FRONT = 0,
+    LOC_INDEX_FRONT_RIGHT = 1,
+    LOC_INDEX_FRONT_LEFT = 2,
+    LOC_INDEX_REAR = 3,
+    LOC_INDEX_REAR_RIGHT = 4,
+    LOC_INDEX_REAR_LEFT = 5,
+    LOC_INDEX_LEFT = 6,
+    LOC_INDEX_RIGHT = 7
+
 };
 
 int main (int argc, char **argv)
@@ -54,17 +65,51 @@ int main (int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    struct can_frame frame;
-    frame.can_id = TEST_CAN_ID;
-    frame.len = 2;
-    frame.data[0] = TEST_STATUS;   // STATUS_ERROR
-    frame.data[1] = TEST_LOCATION; // LOC_FRONT
-
-    if (write (can_socket, &frame, sizeof (struct can_frame)) != (int)sizeof (struct can_frame))
+    for (int i = 0; i < NUM_FRAME; i++)
     {
-        perror ("Write failed\n");
-        close (can_socket);
-        return EXIT_FAILURE;
+        struct can_frame frame;
+        frame.can_id = FRAME_ID + i;
+        frame.len = 2;
+        frame.data[0] = (i % 2 == 0) ? STATUS_OK : STATUS_ERROR;
+        switch (i)
+        {
+        case LOC_INDEX_FRONT:
+            frame.data[1] = LOC_FRONT;
+            break;
+        case LOC_INDEX_FRONT_RIGHT:
+            frame.data[1] = LOC_FRONT_RIGHT;
+            break;
+        case LOC_INDEX_FRONT_LEFT:
+            frame.data[1] = LOC_FRONT_LEFT;
+            break;
+        case LOC_INDEX_REAR:
+            frame.data[1] = LOC_REAR;
+            break;
+        case LOC_INDEX_REAR_RIGHT:
+            frame.data[1] = LOC_REAR_RIGHT;
+            break;
+        case LOC_INDEX_REAR_LEFT:
+            frame.data[1] = LOC_REAR_LEFT;
+            break;
+        case LOC_INDEX_LEFT:
+            frame.data[1] = LOC_LEFT;
+            break;
+        case LOC_INDEX_RIGHT:
+            frame.data[1] = LOC_RIGHT;
+            break;
+        default:
+            frame.data[1] = LOC_UNKNOWN;
+            break;
+        }
+
+        if (write (can_socket, &frame, sizeof (frame)) != (int)sizeof (frame))
+        {
+            perror ("Write failed");
+            close (can_socket);
+            return EXIT_FAILURE;
+        }
+        printf ("Sent: 0x%03X %02X %02X\n", frame.can_id, frame.data[0], frame.data[1]);
+        usleep (SLEEP);
     }
     close (can_socket);
     return EXIT_SUCCESS;

@@ -11,61 +11,30 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+#include <assert.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <stdint.h>
 
-#define INFLUX_URL "http://localhost:8086/write?db=CAN_Data"
+#include "canTypes.h"
+
+#define INFLUX_URL "http://localhost:8181/api/v3/write_lp?db=CAN_data"
+#define INFLUX_BASE_URL "http://localhost:8181"
+#define WRITE_EP "/api/v3/write_lp"
+#define INFLUX_PARAMS "?db=CAN_data"
+#define CREATE_INFLUX_URL(s) INFLUX_BASE_URL s INFLUX_PARAMS
+
+enum
+{
+    QUERY_BUF_SIZE = 256
+};
+enum
+{
+    HTTP_OK = 200,
+    HTTP_NO_CONTENT = 204
+};
 
 static volatile sig_atomic_t keep_running = 1;
-
-typedef enum
-{
-    STATUS_OK = 0x00,
-    STATUS_ERROR = 0x01,
-    STATUS_WARNING = 0x02,
-    STATUS_UNKNOWN = 0xFF
-} SystemStatus;
-
-typedef enum
-{
-    LOC_FRONT = 0x10,
-    LOC_REAR = 0x20,
-    LOC_LEFT = 0x30,
-    LOC_RIGHT = 0x40,
-    LOC_UNKNOWN = 0x00
-} ComponentLocation;
-
-const char *status_to_str (uint8_t status)
-{
-    switch (status)
-    {
-    case STATUS_OK:
-        return "OK";
-    case STATUS_ERROR:
-        return "ERROR";
-    case STATUS_WARNING:
-        return "WARNING";
-    default:
-        return "UNKNOWN_STATUS";
-    }
-}
-const char *location_to_str (uint8_t loc)
-{
-    switch (loc)
-    {
-    case LOC_FRONT:
-        return "FRONT";
-    case LOC_REAR:
-        return "REAR";
-    case LOC_LEFT:
-        return "LEFT";
-    case LOC_RIGHT:
-        return "RIGHT";
-    default:
-        return "UNKNOWN_LOC";
-    }
-}
 
 void handle_exit (int sig)
 {
@@ -75,7 +44,7 @@ void handle_exit (int sig)
 
 void print_can_frame (const struct can_frame *frame)
 {
-    printf ("%X   %d", frame->can_id, frame->len);
+    printf ("%X  %d  ", frame->can_id, frame->len);
     for (int i = 0; i < frame->len; i++)
     {
         printf ("%02X ", frame->data[i]);
@@ -91,79 +60,50 @@ void print_can_frame (const struct can_frame *frame)
 
     printf ("\n");
 }
-void init_influx_db() {
-    CURL *curl = curl_easy_init();
-    if (!curl) return;
 
-    // InfluxDB 1.8 uses the /query endpoint to create databases
-    // URL-encoded: CREATE DATABASE CAN_Data
-    const char* init_url = "http://localhost:8086/query?q=CREATE+DATABASE+CAN_Data";
-
-    curl_easy_setopt(curl, CURLOPT_URL, init_url);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    // We don't need a body for this specific GET/POST query
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, ""); 
-
-    CURLcode res = curl_easy_perform(curl);
-    
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Failed to connect to InfluxDB: %s\n", curl_easy_strerror(res));
-        sleep(5);
-        res = curl_easy_perform(curl);
-        return;
-    } else {
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        if (http_code == 200) {
-            printf("Database 'CAN_Data' initialized or already exists.\n");
-        }
-    }
-
-    curl_easy_cleanup(curl);
-}
-
-void log_to_influx (const struct can_frame *frame)
+void write_to_influx (const struct can_frame *frame, CURL *curl)
 {
-    CURL *curl = curl_easy_init ();
-    if (!curl)
-    {
-        fprintf (stderr, "Failed to initialize CURL\n");
-        return;
-    }
+    assert (frame != NULL && "null frame ptr in write_to_influx");
+    assert (curl != NULL && "null curl ptr in write_to_influx");
 
-    char data[256];
-    snprintf (data, sizeof (data), "can_stats,id=%X,loc=%s status=%d", frame->can_id, location_to_str (frame->data[1]),
-              frame->data[0]);
+    char data[QUERY_BUF_SIZE];
+    memset (data, '\0', QUERY_BUF_SIZE);                                                      // NOLINT
+    snprintf (data, sizeof (data), "can_stats,id=%d loc_str=\"%s\",status=%d", frame->can_id, // NOLINT
+              location_to_str (frame->data[1]), frame->data[0]);
 
-    curl_easy_setopt (curl, CURLOPT_URL, INFLUX_URL);
+    curl_easy_setopt (curl, CURLOPT_URL, CREATE_INFLUX_URL (WRITE_EP)); // NOLINT
     curl_easy_setopt (curl, CURLOPT_POSTFIELDS, data);
 
     CURLcode res = curl_easy_perform (curl);
     if (res != CURLE_OK)
     {
-        fprintf (stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror (res));
+        fprintf (stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror (res)); // NOLINT
     }
     else
     {
         long http_code = 0;
         curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-        if (http_code == 204)
+        if (http_code == HTTP_NO_CONTENT || http_code == HTTP_OK)
         {
-            printf ("[DB] Data sent successfully to InfluxDB\n");
+            printf ("Data sent successfully to InfluxDB\n");
         }
         else
         {
-            fprintf (stderr, "InfluxDB returned HTTP %ld\n", http_code);
+            fprintf (stderr, "InfluxDB returned HTTP %ld\n", http_code); // NOLINT
         }
     }
-    curl_easy_cleanup (curl);
 }
 
 int main (int argc, char **argv)
 {
     curl_global_init (CURL_GLOBAL_ALL);
-    init_influx_db();
+    CURL *curl = curl_easy_init ();
+    if (!curl)
+    {
+        fprintf (stderr, "Failed to initialize CURL\n"); // NOLINT
+        return EXIT_FAILURE;
+    }
     signal (SIGINT, handle_exit);
     if (argc < 2)
     {
@@ -178,9 +118,9 @@ int main (int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    struct ifreq ifr = { 0 };
+    struct ifreq ifr;                                 // NOLINT
+    memset (&ifr, '\0', sizeof (ifr));                // NOLINT
     strncpy (ifr.ifr_name, argv[1], IF_NAMESIZE - 1); // NOLINT
-    ifr.ifr_name[IF_NAMESIZE - 1] = '\0';
     if (ioctl (can_socket, SIOCGIFINDEX, &ifr) < 0)
     {
         perror ("Interface not found\n");
@@ -190,7 +130,7 @@ int main (int argc, char **argv)
 
     struct sockaddr_can addr = { 0 };
     addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
+    addr.can_ifindex = ifr.ifr_ifindex; // NOLINT
     if (bind (can_socket, (struct sockaddr *)&addr, sizeof (addr)) < 0)
     {
         perror ("Bind failed\n");
@@ -214,9 +154,9 @@ int main (int argc, char **argv)
         }
 
         print_can_frame (&frame);
-        log_to_influx (&frame);
+        write_to_influx (&frame, curl);
     }
-
+    curl_easy_cleanup (curl);
     curl_global_cleanup ();
     close (can_socket);
     return EXIT_SUCCESS;

@@ -1,68 +1,33 @@
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <net/if.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-#include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <unistd.h>
 
-#include <linux/can.h>
-#include <linux/can/raw.h>
-#include <stdint.h>
+#include "canTypes.h"
+#include "oledi2c.h"
 
 static volatile sig_atomic_t keep_running = 1;
 
-typedef enum
+enum
 {
-    STATUS_OK = 0x00,
-    STATUS_ERROR = 0x01,
-    STATUS_WARNING = 0x02,
-    STATUS_UNKNOWN = 0xFF
-} SystemStatus;
+    MAX_LINE_LEN = 21,
+    NUM_DISPLAY_LINES = 4,
+    TOTAL_MESSAGE = NUM_DISPLAY_LINES * 2,
+    SPLASH_DELAY_US = 2000000
+};
 
-typedef enum
-{
-    LOC_FRONT = 0x10,
-    LOC_REAR = 0x20,
-    LOC_LEFT = 0x30,
-    LOC_RIGHT = 0x40,
-    LOC_UNKNOWN = 0x00
-} ComponentLocation;
-
-const char *status_to_str (uint8_t status)
-{
-    switch (status)
-    {
-    case STATUS_OK:
-        return "OK";
-    case STATUS_ERROR:
-        return "ERROR";
-    case STATUS_WARNING:
-        return "WARNING";
-    default:
-        return "UNKNOWN_STATUS";
-    }
-}
-const char *location_to_str (uint8_t loc)
-{
-    switch (loc)
-    {
-    case LOC_FRONT:
-        return "FRONT";
-    case LOC_REAR:
-        return "REAR";
-    case LOC_LEFT:
-        return "LEFT";
-    case LOC_RIGHT:
-        return "RIGHT";
-    default:
-        return "UNKNOWN_LOC";
-    }
-}
+static char message_lines[TOTAL_MESSAGE][MAX_LINE_LEN];
+static int line_index = 0;
+static int line_count = 0;
 
 void handle_exit (int sig)
 {
@@ -70,23 +35,64 @@ void handle_exit (int sig)
     keep_running = 0;
 }
 
-void print_can_frame (const struct can_frame *frame)
+static void format_raw_line (char *out, size_t out_size, const struct can_frame *frame)
 {
-    printf ("%X   %d", frame->can_id, frame->len);
-    for (int i = 0; i < frame->len; i++)
+    if (frame->len >= 2)
     {
-        printf ("%02X ", frame->data[i]);
+        snprintf (out, out_size, "%03X %02X %02X", frame->can_id, frame->data[0], frame->data[1]); // NOLINT
     }
+    else
+    {
+        snprintf (out, out_size, "%03X (short)", frame->can_id); // NOLINT
+    }
+}
 
+static void format_trans_line (char *out, size_t out_size, const struct can_frame *frame)
+{
     if (frame->len >= 2)
     {
         const char *status_str = status_to_str (frame->data[0]);
         const char *loc_str = location_to_str (frame->data[1]);
+        snprintf (out, out_size, "%s %s", status_str, loc_str); // NOLINT
+    }
+    else
+    {
+        snprintf (out, out_size, "Invalid frame"); // NOLINT
+    }
+}
 
-        printf (" Status: %s, Location: %s", status_str, loc_str);
+void print_can_frame (const struct can_frame *frame)
+{
+    char raw_line[MAX_LINE_LEN];
+    char trans_line[MAX_LINE_LEN];
+    format_raw_line (raw_line, sizeof (raw_line), frame);
+    format_trans_line (trans_line, sizeof (trans_line), frame);
+    printf ("%s -> %s\n", raw_line, trans_line);
+
+    strncpy (message_lines[line_index], raw_line, MAX_LINE_LEN - 1); // NOLINT
+    message_lines[line_index][MAX_LINE_LEN - 1] = '\0';
+    int next_line = (line_index + 1) % TOTAL_MESSAGE;
+    strncpy (message_lines[next_line], trans_line, MAX_LINE_LEN - 1); // NOLINT
+    message_lines[next_line][MAX_LINE_LEN - 1] = '\0';
+
+    line_index = (line_index + 2) % TOTAL_MESSAGE;
+    if (line_count < NUM_DISPLAY_LINES)
+    {
+        line_count++;
     }
 
-    printf ("\n");
+    oled_clear ();
+    int start_idx = (line_index - (line_count * 2) + TOTAL_MESSAGE) % TOTAL_MESSAGE;
+    for (int i = 0; i < TOTAL_MESSAGE; i++)
+    {
+        if (i >= line_count * 2)
+        {
+            break;
+        }
+        int idx = (start_idx + i) % TOTAL_MESSAGE;
+        oled_draw_string (0, i, message_lines[idx]);
+    }
+    oled_flush ();
 }
 
 int main (int argc, char **argv)
@@ -97,6 +103,17 @@ int main (int argc, char **argv)
         fprintf (stderr, "Use: %s can0\n", argv[0]); // NOLINT
         return EXIT_FAILURE;
     }
+    if (oled_init () != 0)
+    {
+        fprintf (stderr, "Failed to initialise OLED\n"); // NOLINT
+        return EXIT_FAILURE;
+    }
+    oled_clear ();
+    oled_draw_string (0, 3, "CAN Sniffer");
+    oled_flush ();
+    usleep (SPLASH_DELAY_US);
+    oled_clear ();
+    oled_flush ();
 
     int can_socket = socket (PF_CAN, SOCK_RAW, CAN_RAW);
     if (can_socket < 0)
@@ -117,7 +134,7 @@ int main (int argc, char **argv)
 
     struct sockaddr_can addr = { 0 };
     addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
+    addr.can_ifindex = ifr.ifr_ifindex; // NOLINT
     if (bind (can_socket, (struct sockaddr *)&addr, sizeof (addr)) < 0)
     {
         perror ("Bind failed\n");
@@ -142,6 +159,7 @@ int main (int argc, char **argv)
 
         print_can_frame (&frame);
     }
+    oled_close ();
     close (can_socket);
     return EXIT_SUCCESS;
 }
