@@ -25,9 +25,16 @@ enum
     SPLASH_DELAY_US = 2000000
 };
 
-static char message_lines[TOTAL_MESSAGE][MAX_LINE_LEN];
-static int line_index = 0;
-static int line_count = 0;
+static char ok_message_lines[TOTAL_MESSAGE][MAX_LINE_LEN];
+static int ok_line_index = 0;
+static int ok_line_count = 0;
+
+static char error_message_lines[TOTAL_MESSAGE][MAX_LINE_LEN];
+static int error_line_index = 0;
+static int error_line_count = 0;
+
+static OledDisplay display_ok;
+static OledDisplay display_error;
 
 void handle_exit (int sig)
 {
@@ -53,12 +60,47 @@ static void format_trans_line (char *out, size_t out_size, const struct can_fram
     {
         const char *status_str = status_to_str (frame->data[0]);
         const char *loc_str = location_to_str (frame->data[1]);
-        snprintf (out, out_size, "%s %s", status_str, loc_str); // NOLINT
+        snprintf (out, out_size, "- %s %s", status_str, loc_str); // NOLINT
     }
     else
     {
         snprintf (out, out_size, "Invalid frame"); // NOLINT
     }
+}
+
+static void update_display (OledDisplay *display, char msg_lines[TOTAL_MESSAGE][MAX_LINE_LEN], int *index, int *count,
+                            const struct can_frame *frame)
+{
+    char raw_line[MAX_LINE_LEN];
+    char trans_line[MAX_LINE_LEN];
+    format_raw_line (raw_line, sizeof (raw_line), frame);
+    format_trans_line (trans_line, sizeof (trans_line), frame);
+
+    strncpy (msg_lines[*index], raw_line, MAX_LINE_LEN - 1); // NOLINT
+    msg_lines[*index][MAX_LINE_LEN - 1] = '\0';
+    int next = (*index + 1) % TOTAL_MESSAGE;
+
+    strncpy (msg_lines[next], trans_line, MAX_LINE_LEN - 1); // NOLINT
+    msg_lines[next][MAX_LINE_LEN - 1] = '\0';
+
+    *index = (*index + 2) % TOTAL_MESSAGE;
+    if (*count < NUM_DISPLAY_LINES)
+    {
+        (*count)++;
+    }
+
+    oled_clear (display);
+    int start_idx = (*index - (*count * 2) + TOTAL_MESSAGE) % TOTAL_MESSAGE;
+    for (int i = 0; i < TOTAL_MESSAGE; i++)
+    {
+        if (i >= *count * 2)
+        {
+            break;
+        }
+        int line = (start_idx + i) % TOTAL_MESSAGE;
+        oled_draw_string (display, 0, i, msg_lines[line]);
+    }
+    oled_flush (display);
 }
 
 void print_can_frame (const struct can_frame *frame)
@@ -69,30 +111,24 @@ void print_can_frame (const struct can_frame *frame)
     format_trans_line (trans_line, sizeof (trans_line), frame);
     printf ("%s -> %s\n", raw_line, trans_line);
 
-    strncpy (message_lines[line_index], raw_line, MAX_LINE_LEN - 1); // NOLINT
-    message_lines[line_index][MAX_LINE_LEN - 1] = '\0';
-    int next_line = (line_index + 1) % TOTAL_MESSAGE;
-    strncpy (message_lines[next_line], trans_line, MAX_LINE_LEN - 1); // NOLINT
-    message_lines[next_line][MAX_LINE_LEN - 1] = '\0';
-
-    line_index = (line_index + 2) % TOTAL_MESSAGE;
-    if (line_count < NUM_DISPLAY_LINES)
+    if (frame->len >= 2 && frame->data[0] == STATUS_OK)
     {
-        line_count++;
+        update_display (&display_ok, ok_message_lines, &ok_line_index, &ok_line_count, frame);
     }
-
-    oled_clear ();
-    int start_idx = (line_index - (line_count * 2) + TOTAL_MESSAGE) % TOTAL_MESSAGE;
-    for (int i = 0; i < TOTAL_MESSAGE; i++)
+    else
     {
-        if (i >= line_count * 2)
-        {
-            break;
-        }
-        int idx = (start_idx + i) % TOTAL_MESSAGE;
-        oled_draw_string (0, i, message_lines[idx]);
+        update_display (&display_error, error_message_lines, &error_line_index, &error_line_count, frame);
     }
-    oled_flush ();
+}
+
+static void splash_and_clear (OledDisplay *display, const char *label)
+{
+    oled_clear (display);
+    oled_draw_string (display, 0, 3, label);
+    oled_flush (display);
+    usleep (SPLASH_DELAY_US);
+    oled_clear (display);
+    oled_flush (display);
 }
 
 int main (int argc, char **argv)
@@ -103,17 +139,21 @@ int main (int argc, char **argv)
         fprintf (stderr, "Use: %s can0\n", argv[0]); // NOLINT
         return EXIT_FAILURE;
     }
-    if (oled_init () != 0)
+
+    if (oled_init (&display_ok, "/dev/i2c-1") != 0)
     {
-        fprintf (stderr, "Failed to initialise OLED\n"); // NOLINT
+        fprintf (stderr, "Failed to init OK display (i2c-1)\n"); // NOLINT
         return EXIT_FAILURE;
     }
-    oled_clear ();
-    oled_draw_string (0, 3, "CAN Sniffer");
-    oled_flush ();
-    usleep (SPLASH_DELAY_US);
-    oled_clear ();
-    oled_flush ();
+    if (oled_init (&display_error, "/dev/i2c-0") != 0)
+    {
+        fprintf (stderr, "Failed to init ERROR display (i2c-0)\n"); // NOLINT
+        oled_close (&display_ok);
+        return EXIT_FAILURE;
+    }
+
+    splash_and_clear (&display_ok, "CAN Sniffer (OK)");
+    splash_and_clear (&display_error, "CAN Sniffer (ERR)");
 
     int can_socket = socket (PF_CAN, SOCK_RAW, CAN_RAW);
     if (can_socket < 0)
@@ -124,7 +164,7 @@ int main (int argc, char **argv)
 
     struct ifreq ifr = { 0 };
     strncpy (ifr.ifr_name, argv[1], IF_NAMESIZE - 1); // NOLINT
-    ifr.ifr_name[IF_NAMESIZE - 1] = '\0';
+    ifr.ifr_name[IF_NAMESIZE - 1] = '\0';             // NOLINT
     if (ioctl (can_socket, SIOCGIFINDEX, &ifr) < 0)
     {
         perror ("Interface not found\n");
@@ -159,7 +199,8 @@ int main (int argc, char **argv)
 
         print_can_frame (&frame);
     }
-    oled_close ();
+    oled_close (&display_ok);
+    oled_close (&display_error);
     close (can_socket);
     return EXIT_SUCCESS;
 }

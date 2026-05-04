@@ -1,8 +1,3 @@
-/*
- * Compile: gcc -o oled oled.c
- * Run:     ./oled "Your message here"
- */
-
 #include "oledi2c.h"
 #include <fcntl.h>
 #include <linux/i2c-dev.h>
@@ -12,9 +7,6 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-
-static int fd = -1;
-static uint8_t framebuffer[WIDTH * PAGES];
 
 const uint8_t font5x7[][5] = {
     { 0x00, 0x00, 0x00, 0x00, 0x00 }, // ' '
@@ -110,16 +102,16 @@ const uint8_t font5x7[][5] = {
     { 0x44, 0x64, 0x54, 0x4C, 0x44 }, // z
 };
 
-static void oled_cmd (uint8_t cmd)
+static void oled_cmd (OledDisplay *display, uint8_t cmd)
 {
     uint8_t buf[2] = { 0x00, cmd };
-    if (write (fd, buf, 2) != 2)
+    if (write (display->fd, buf, 2) != 2)
     {
         perror ("oled_cmd write");
     }
 }
 
-static void oled_send_data (const uint8_t *data, int len)
+static void oled_send_data (OledDisplay *display, const uint8_t *data, int len)
 {
     uint8_t buf[17];
     buf[0] = 0x40;
@@ -129,26 +121,26 @@ static void oled_send_data (const uint8_t *data, int len)
         if (chunk > 16)
             chunk = 16;
         memcpy (buf + 1, data + i, chunk);
-        if (write (fd, buf, chunk + 1) != chunk + 1)
+        if (write (display->fd, buf, chunk + 1) != chunk + 1)
         {
             perror ("oled_send_data write");
         }
     }
 }
 
-int oled_init (void)
+int oled_init (OledDisplay *display, const char *i2c_bus)
 {
-    fd = open (I2C_BUS, O_RDWR);
-    if (fd < 0)
+    display->fd = open (i2c_bus, O_RDWR);
+    if (display->fd < 0)
     {
-        perror ("open " I2C_BUS);
+        perror ("open i2c_bus");
         return -1;
     }
-    if (ioctl (fd, I2C_SLAVE, OLED_ADDR) < 0)
+    if (ioctl (display->fd, I2C_SLAVE, OLED_ADDR) < 0)
     {
         perror ("ioctl I2C_SLAVE");
-        close (fd);
-        fd = -1;
+        close (display->fd);
+        display->fd = -1;
         return -1;
     }
     static const uint8_t cmds[] = {
@@ -170,27 +162,27 @@ int oled_init (void)
         0xAF        // display ON
     };
     for (size_t i = 0; i < sizeof (cmds); i++)
-        oled_cmd (cmds[i]);
+        oled_cmd (display, cmds[i]);
 
-    oled_clear ();
-    oled_flush ();
+    oled_clear (display);
+    oled_flush (display);
     return 0;
 }
 
-void oled_flush ()
+void oled_flush (OledDisplay *display)
 {
     for (int page = 0; page < 8; page++)
     {
-        oled_cmd (0xB0 | page);
-        oled_cmd (0x02);
-        oled_cmd (0x10);
-        oled_send_data (&framebuffer[page * WIDTH], WIDTH);
+        oled_cmd (display, 0xB0 | page);
+        oled_cmd (display, 0x02);
+        oled_cmd (display, 0x10);
+        oled_send_data (display, &display->framebuffer[page * WIDTH], WIDTH);
     }
 }
 
-void oled_clear (void) { memset (framebuffer, 0x00, sizeof (framebuffer)); }
+void oled_clear (OledDisplay *display) { memset (display->framebuffer, 0x00, sizeof (display->framebuffer)); }
 
-void oled_draw_char (int column, int page, char character)
+void oled_draw_char (OledDisplay *display, int column, int page, char character)
 {
     if (character < 32 || character > 'z')
         character = '?';
@@ -199,11 +191,11 @@ void oled_draw_char (int column, int page, char character)
     {
         if (column + col >= WIDTH)
             break;
-        framebuffer[page * WIDTH + column + col] = glyph[col];
+        display->framebuffer[page * WIDTH + column + col] = glyph[col];
     }
 }
 
-void oled_draw_string (int column, int page, const char *str)
+void oled_draw_string (OledDisplay *display, int column, int page, const char *str)
 {
     while (*str)
     {
@@ -214,13 +206,13 @@ void oled_draw_string (int column, int page, const char *str)
         }
         if (page >= PAGES)
             break;
-        oled_draw_char (column, page, *str++);
+        oled_draw_char (display, column, page, *str++);
         column += 6;
     }
 }
-void oled_close (void)
+void oled_close (OledDisplay *display)
 {
-    if (fd >= 0)
-        close (fd);
-    fd = -1;
+    if (display->fd >= 0)
+        close (display->fd);
+    display->fd = -1;
 }
