@@ -55,7 +55,7 @@
             "label": "Run Clang-Tidy",
             "type": "shell",
             //removed /* --fix-errors */
-            "command": "clang-tidy -p build/  src/*.cpp",
+            "command": "clang-tidy  -p build/  src/*.c",
             "group": "build",
             "dependsOn": ["Build Project"],
             "problemMatcher": "$gcc",
@@ -67,7 +67,7 @@
         {
             "label": "Clang-Format All",
             "type": "shell",
-            "command": "find src include tests -name '*.[ch]' -o -name '*.cpp' | xargs -r clang-format -i -style=file",
+            "command": "find src include tests -name '*.[ch]' -o -name '*.c' | xargs -r clang-format-20 -i -style=file" ,
             "group": "build",
             "presentation": {
                 "reveal": "silent",

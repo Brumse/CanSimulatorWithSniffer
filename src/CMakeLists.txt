@@ -1,8 +1,10 @@
-set(LIB_SOURCES
-    #i2c_slave_unit.c
-    greeting.cpp
-)
-add_library(cansim_lib STATIC ${LIB_SOURCES})
-target_include_directories(cansim_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
-add_executable(hello main.cpp)
-target_link_libraries(hello PRIVATE cansim_lib)
+find_package(CURL REQUIRED)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+add_executable(dump candump.c ../include//canTypes.c)
+add_executable(send cansend.c ../include//canTypes.c)
+add_executable(sniffer canSniffer.c ../include/oledi2c.c ../include//canTypes.c)
+add_executable(canClient canClient.c ../include//canTypes.c)
+
+target_link_libraries(canClient PRIVATE CURL::libcurl)
+target_include_directories(canClient PRIVATE ${CURL_INCLUDE_DIRS})
