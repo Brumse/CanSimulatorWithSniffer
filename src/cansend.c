@@ -29,9 +29,16 @@ enum
     LOC_INDEX_RIGHT = 7
 
 };
+static volatile sig_atomic_t keep_running = 1;
+void handle_exit (int sig)
+{
+    (void)sig;
+    keep_running = 0;
+}
 
 int main (int argc, char **argv)
 {
+    signal (SIGINT, handle_exit);
     if (argc < 2)
     {
         fprintf (stderr, "Use: %s can0\n", argv[0]); // NOLINT
@@ -64,52 +71,54 @@ int main (int argc, char **argv)
         close (can_socket);
         return EXIT_FAILURE;
     }
-
-    for (int i = 0; i < NUM_FRAME; i++)
+    while (keep_running)
     {
-        struct can_frame frame;
-        frame.can_id = FRAME_ID + i;
-        frame.len = 2;
-        frame.data[0] = (i % 2 == 0) ? STATUS_OK : STATUS_ERROR;
-        switch (i)
+        for (int i = 0; i < NUM_FRAME && keep_running; i++)
         {
-        case LOC_INDEX_FRONT:
-            frame.data[1] = LOC_FRONT;
-            break;
-        case LOC_INDEX_FRONT_RIGHT:
-            frame.data[1] = LOC_FRONT_RIGHT;
-            break;
-        case LOC_INDEX_FRONT_LEFT:
-            frame.data[1] = LOC_FRONT_LEFT;
-            break;
-        case LOC_INDEX_REAR:
-            frame.data[1] = LOC_REAR;
-            break;
-        case LOC_INDEX_REAR_RIGHT:
-            frame.data[1] = LOC_REAR_RIGHT;
-            break;
-        case LOC_INDEX_REAR_LEFT:
-            frame.data[1] = LOC_REAR_LEFT;
-            break;
-        case LOC_INDEX_LEFT:
-            frame.data[1] = LOC_LEFT;
-            break;
-        case LOC_INDEX_RIGHT:
-            frame.data[1] = LOC_RIGHT;
-            break;
-        default:
-            frame.data[1] = LOC_UNKNOWN;
-            break;
-        }
+            struct can_frame frame;
+            frame.can_id = FRAME_ID + i;
+            frame.len = 2;
+            frame.data[0] = (i % 2 == 0) ? STATUS_OK : STATUS_ERROR;
+            switch (i)
+            {
+            case LOC_INDEX_FRONT:
+                frame.data[1] = LOC_FRONT;
+                break;
+            case LOC_INDEX_FRONT_RIGHT:
+                frame.data[1] = LOC_FRONT_RIGHT;
+                break;
+            case LOC_INDEX_FRONT_LEFT:
+                frame.data[1] = LOC_FRONT_LEFT;
+                break;
+            case LOC_INDEX_REAR:
+                frame.data[1] = LOC_REAR;
+                break;
+            case LOC_INDEX_REAR_RIGHT:
+                frame.data[1] = LOC_REAR_RIGHT;
+                break;
+            case LOC_INDEX_REAR_LEFT:
+                frame.data[1] = LOC_REAR_LEFT;
+                break;
+            case LOC_INDEX_LEFT:
+                frame.data[1] = LOC_LEFT;
+                break;
+            case LOC_INDEX_RIGHT:
+                frame.data[1] = LOC_RIGHT;
+                break;
+            default:
+                frame.data[1] = LOC_UNKNOWN;
+                break;
+            }
 
-        if (write (can_socket, &frame, sizeof (frame)) != (int)sizeof (frame))
-        {
-            perror ("Write failed");
-            close (can_socket);
-            return EXIT_FAILURE;
+            if (write (can_socket, &frame, sizeof (frame)) != (int)sizeof (frame))
+            {
+                perror ("Write failed");
+                close (can_socket);
+                return EXIT_FAILURE;
+            }
+            printf ("Sent: 0x%03X %02X %02X\n", frame.can_id, frame.data[0], frame.data[1]);
+            usleep (SLEEP);
         }
-        printf ("Sent: 0x%03X %02X %02X\n", frame.can_id, frame.data[0], frame.data[1]);
-        usleep (SLEEP);
     }
     close (can_socket);
     return EXIT_SUCCESS;
