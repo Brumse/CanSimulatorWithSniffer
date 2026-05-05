@@ -22,7 +22,10 @@ enum
     MAX_LINE_LEN = 21,
     NUM_DISPLAY_LINES = 4,
     TOTAL_MESSAGE = NUM_DISPLAY_LINES * 2,
-    SPLASH_DELAY_US = 2000000
+    SPLASH_DELAY_US = 2000000,
+    MS_PER_SEC = 1000,
+    US_PER_MS = 1000,
+    DISPLAY_REFRESH_MS = 50
 };
 
 static char ok_message_lines[TOTAL_MESSAGE][MAX_LINE_LEN];
@@ -72,31 +75,31 @@ static void update_display (OledDisplay *display, char msg_lines[TOTAL_MESSAGE][
                             const struct can_frame *frame)
 {
     char raw_line[MAX_LINE_LEN];
-    char trans_line[MAX_LINE_LEN];
     format_raw_line (raw_line, sizeof (raw_line), frame);
-    format_trans_line (trans_line, sizeof (trans_line), frame);
 
     strncpy (msg_lines[*index], raw_line, MAX_LINE_LEN - 1); // NOLINT
     msg_lines[*index][MAX_LINE_LEN - 1] = '\0';
-    int next = (*index + 1) % TOTAL_MESSAGE;
 
-    strncpy (msg_lines[next], trans_line, MAX_LINE_LEN - 1); // NOLINT
-    msg_lines[next][MAX_LINE_LEN - 1] = '\0';
-
-    *index = (*index + 2) % TOTAL_MESSAGE;
+    *index = (*index + 1) % TOTAL_MESSAGE;
     if (*count < NUM_DISPLAY_LINES)
     {
         (*count)++;
     }
 
-    oled_clear (display);
-    int start_idx = (*index - (*count * 2) + TOTAL_MESSAGE) % TOTAL_MESSAGE;
-    for (int i = 0; i < TOTAL_MESSAGE; i++)
+    static struct timeval last = { 0 };
+    struct timeval now;
+    gettimeofday (&now, NULL);
+    long diff_ms = (now.tv_sec - last.tv_sec) * MS_PER_SEC + (now.tv_usec - last.tv_usec) / US_PER_MS;
+    if (diff_ms < DISPLAY_REFRESH_MS)
     {
-        if (i >= *count * 2)
-        {
-            break;
-        }
+        return;
+    }
+    last = now;
+
+    oled_clear (display);
+    int start_idx = (*index - *count + TOTAL_MESSAGE) % TOTAL_MESSAGE;
+    for (int i = 0; i < *count; i++)
+    {
         int line = (start_idx + i) % TOTAL_MESSAGE;
         oled_draw_string (display, 0, i, msg_lines[line]);
     }
