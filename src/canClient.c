@@ -67,10 +67,11 @@ void write_to_influx (const struct can_frame *frame, CURL *curl)
     assert (curl != NULL && "null curl ptr in write_to_influx");
 
     char data[QUERY_BUF_SIZE];
-    memset (data, '\0', QUERY_BUF_SIZE);                                                      // NOLINT
-    snprintf (data, sizeof (data), "can_stats,id=%d loc_str=\"%s\",status=%d", frame->can_id, // NOLINT
+    memset (data, '\0', QUERY_BUF_SIZE); // NOLINT
+    // clang-format off
+    snprintf (data, sizeof (data), "can_stats,id=%d,loc=%s status=%d", frame->can_id, // NOLINT
               location_to_str (frame->data[1]), frame->data[0]);
-
+    // clang-format on
     curl_easy_setopt (curl, CURLOPT_URL, CREATE_INFLUX_URL (WRITE_EP)); // NOLINT
     curl_easy_setopt (curl, CURLOPT_POSTFIELDS, data);
 
