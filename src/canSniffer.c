@@ -20,7 +20,7 @@ static volatile sig_atomic_t keep_running = 1;
 enum
 {
     MAX_LINE_LEN = 21,
-    NUM_DISPLAY_LINES = 4,
+    NUM_DISPLAY_LINES = 8,
     TOTAL_MESSAGE = NUM_DISPLAY_LINES * 2,
     SPLASH_DELAY_US = 2000000,
     MS_PER_SEC = 1000,
@@ -127,7 +127,7 @@ void print_can_frame (const struct can_frame *frame)
 static void splash_and_clear (OledDisplay *display, const char *label)
 {
     oled_clear (display);
-    oled_draw_string (display, 0, 3, label);
+    oled_draw_string (display, 0, 4, label);
     oled_flush (display);
     usleep (SPLASH_DELAY_US);
     oled_clear (display);

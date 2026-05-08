@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <net/if.h>
@@ -16,9 +17,8 @@
 
 enum
 {
-    SLEEP = 100000,
+    SLEEP = 3000000,
     FRAME_ID = 0x100,
-    NUM_FRAME = 5,
     LOC_INDEX_FRONT = 0,
     LOC_INDEX_FRONT_RIGHT = 1,
     LOC_INDEX_FRONT_LEFT = 2,
@@ -26,8 +26,8 @@ enum
     LOC_INDEX_REAR_RIGHT = 4,
     LOC_INDEX_REAR_LEFT = 5,
     LOC_INDEX_LEFT = 6,
-    LOC_INDEX_RIGHT = 7
-
+    LOC_INDEX_RIGHT = 7,
+    NUM_FRAME = 8
 };
 static volatile sig_atomic_t keep_running = 1;
 void handle_exit (int sig)
@@ -71,6 +71,8 @@ int main (int argc, char **argv)
         close (can_socket);
         return EXIT_FAILURE;
     }
+
+    srand (time (NULL));
     while (keep_running)
     {
         for (int i = 0; i < NUM_FRAME && keep_running; i++)
@@ -78,7 +80,21 @@ int main (int argc, char **argv)
             struct can_frame frame;
             frame.can_id = FRAME_ID + i;
             frame.len = 2;
-            frame.data[0] = (i % 2 == 0) ? STATUS_OK : STATUS_ERROR;
+
+            int random = rand () % 3;
+            if (random == 0)
+            {
+                frame.data[0] = STATUS_OK;
+            }
+            else if (random == 1)
+            {
+                frame.data[0] = STATUS_WARNING;
+            }
+            else
+            {
+                frame.data[0] = STATUS_ERROR;
+            }
+
             switch (i)
             {
             case LOC_INDEX_FRONT:
